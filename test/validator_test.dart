@@ -156,6 +156,11 @@ void main() {
       expect(validator.validate(Address('"quoted name"@example.com')), isTrue);
     });
 
+    test('accepts comments with legal folding whitespace', () {
+      expect(validator.validate(Address('bob@example.com\t(Support)')), isTrue);
+      expect(validator.validate(Address('bob@example.com\r\n (Support)')), isTrue);
+    });
+
     test('rejects invalid addresses', () {
       expect(validator.validate(Address('plainstring')), isFalse);
       expect(validator.validate(Address('test@')), isFalse);
@@ -307,6 +312,77 @@ void main() {
   });
 
   group('Message Validation', () {
+    test('default validator rejects a missing closing quote', () {
+      final message = Message()
+        ..from = '"@example.com'
+        ..recipients.add('recipient@example.com')
+        ..envelopeFrom = 'sender@example.com';
+
+      expect(validate(message).map((problem) => problem.code), contains('FROM_ADDRESS'));
+    });
+
+    for (final address in [
+      'bob@example.com (Support)',
+      'bob@example.com\t(Support)',
+      'bob@example.com\r\n (Support)',
+    ]) {
+      test('explicit envelopes allow strict CFWS headers: ${address.codeUnits}', () {
+        final message = Message()
+          ..validator = const StrictAddressValidator()
+          ..from = Address(address)
+          ..recipients.add(Address(address))
+          ..ccRecipients.add(Address(address))
+          ..bccRecipients.add(Address(address))
+          ..envelopeFrom = 'sender@example.com'
+          ..envelopeTos = ['recipient@example.com'];
+
+        expect(validate(message), isEmpty);
+      });
+
+      for (final envelopeTos in <List<String>?>[null, []]) {
+        test(
+            'strict CFWS fallback paths are rejected (envelopeTos=$envelopeTos): '
+            '${address.codeUnits}', () {
+          final message = Message()
+            ..validator = const StrictAddressValidator()
+            ..from = Address(address)
+            ..recipients.add(Address(address))
+            ..ccRecipients.add(Address(address))
+            ..bccRecipients.add(Address(address))
+            ..envelopeTos = envelopeTos;
+
+          expect(validate(message).map((problem) => problem.code),
+              containsAll(['ENV_FROM', 'TO_ADDRESS', 'RECIPIENT_ADDRESS']));
+        });
+      }
+
+      test('strict CFWS explicit envelope paths are rejected: ${address.codeUnits}', () {
+        final message = Message()
+          ..validator = const StrictAddressValidator()
+          ..from = 'sender@example.com'
+          ..recipients.add('recipient@example.com')
+          ..envelopeFrom = address
+          ..envelopeTos = [address];
+
+        expect(
+            validate(message).map((problem) => problem.code), containsAll(['ENV_FROM', 'ENV_TO']));
+      });
+    }
+
+    test('explicit envelopes retain configured validation of header addresses', () {
+      final message = Message()
+        ..validator = const StrictAddressValidator()
+        ..from = 'invalid-from'
+        ..recipients.add('invalid-to')
+        ..ccRecipients.add('invalid-cc')
+        ..bccRecipients.add('invalid-bcc')
+        ..envelopeFrom = 'sender@example.com'
+        ..envelopeTos = ['recipient@example.com'];
+
+      expect(validate(message).map((problem) => problem.code),
+          containsAll(['FROM_ADDRESS', 'TO_ADDRESS', 'RECIPIENT_ADDRESS']));
+    });
+
     test('uses default validator by default', () {
       final message = Message()
         ..from = 'test@example.com'

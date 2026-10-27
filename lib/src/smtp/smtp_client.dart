@@ -10,6 +10,7 @@ import 'connection.dart';
 import 'exceptions.dart';
 import '../mime/mime.dart';
 import 'buffering_stream_transformer.dart';
+import 'smtp_path.dart';
 
 /// Returns if ehlo was successful.
 Future<bool> _doEhlo(Connection c, String clientName) async {
@@ -181,18 +182,20 @@ Future<void> close(Connection? connection) async {
 /// [SocketException],
 Future<void> sendSingleMessage(Message? message, Connection c, Duration? timeout) async {
   var irMessage = MimeMessage(message);
-  var envelopeTos = irMessage.envelopeTos;
+  // Validate every path before issuing even the first envelope command.
+  final envelopeFrom = smtpPath(irMessage.envelopeFrom);
+  final envelopeTos = irMessage.envelopeTos.map((address) => smtpPath(address!)).toList();
 
   var capabilities = c.capabilities;
 
   // Tell the server the envelope from address (might be different to the
   // 'From: ' header!)
   var smtpUtf8 = capabilities.smtpUtf8;
-  await c.send('MAIL FROM:<${irMessage.envelopeFrom}>${smtpUtf8 ? ' SMTPUTF8' : ''}');
+  await c.send('MAIL FROM:$envelopeFrom${smtpUtf8 ? ' SMTPUTF8' : ''}');
 
   // Give the server all recipients.
   // TODO what if only one address fails?
-  await Future.forEach(envelopeTos, (dynamic recipient) => c.send('RCPT TO:<$recipient>'));
+  await Future.forEach(envelopeTos, (String recipient) => c.send('RCPT TO:$recipient'));
 
   // Finally send the actual mail.
   if (capabilities.chunking) {

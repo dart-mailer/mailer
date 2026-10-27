@@ -24,13 +24,14 @@ class PersistentConnection {
   Stream<_MailSendTask> get _mailSendTasks => mailSendTasksController.stream;
 
   PersistentConnection(SmtpServer smtpServer, {Duration? timeout}) {
-    _mailSendTasks.listen((_MailSendTask task) async {
-      _logger.finer('New mail sending task.  ${task.message?.subject}');
+    _mailSendTasks.asyncMap<void>((_MailSendTask task) async {
+      _logger.finer('New mail sending task.');
       try {
         if (task.message == null) {
           // Close connection.
           if (_connection != null) {
             await client.close(_connection);
+            _connection = null;
           }
           task.completer.complete(null);
           return;
@@ -39,11 +40,18 @@ class PersistentConnection {
         _connection ??= await client.connect(smtpServer, timeout);
         var report = await _send(task.message!, _connection!, timeout);
         task.completer.complete(report);
-      } catch (e) {
+      } catch (e, stackTrace) {
+        final failedConnection = _connection;
+        _connection = null;
+        try {
+          await failedConnection?.abort();
+        } catch (_) {
+          // Cleanup must not replace the original send failure.
+        }
         _logger.fine('Completing with error: $e');
-        task.completer.completeError(e);
+        task.completer.completeError(e, stackTrace);
       }
-    });
+    }).listen((_) {});
   }
 
   /// Throws following exceptions:
@@ -52,13 +60,14 @@ class PersistentConnection {
   /// [SmtpClientCommunicationException],
   /// [SocketException]     // Connection dropped
   /// Please report other exceptions you encounter.
-  Future<SendReport> send(Message message) {
+  Future<SendReport> send(Message message) async {
+    _validate(message);
     _logger.finer('Adding message to mailSendQueue');
     var mailTask = _MailSendTask()
       ..message = message
       ..completer = Completer();
     mailSendTasksController.add(mailTask);
-    return mailTask.completer.future
+    return await mailTask.completer.future
         // `null` is only a valid return value for connection close messages.
         .then((value) => ArgumentError.checkNotNull(value));
   }
@@ -116,7 +125,7 @@ void _validate(Message message) {
   var validationProblems = validate(message);
   if (validationProblems.isNotEmpty) {
     _logger.severe('Message validation error: '
-        '${validationProblems.map((p) => p.msg).join('|')}');
+        '${validationProblems.map((p) => p.code).join('|')}');
     throw SmtpMessageValidationException('Invalid message.', validationProblems);
   }
 }

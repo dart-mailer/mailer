@@ -15,6 +15,11 @@ import 'capabilities.dart';
 /// for an smtp session, like an input queue.
 
 final _logger = Logger('Connection');
+final _invalidCommandCharacter = RegExp(r'[\x00-\x1F\x7F]');
+final _responsePrefix = RegExp(r'^[0-9]{3}(?:[ -]|$)');
+const _maxResponseLineLength = 8192;
+const _maxResponseLines = 100;
+const _maxResponseLength = 65536;
 
 class ServerResponse {
   final String responseCode;
@@ -55,6 +60,9 @@ class Connection {
       String? expect,
       bool waitForResponse = true,
       bool private = false}) async {
+    if (_invalidCommandCharacter.hasMatch(command)) {
+      throw SmtpClientCommunicationException('SMTP command contains a control character');
+    }
     // Send the new command.
     if (private) {
       _logger.fine('> *******');
@@ -75,14 +83,21 @@ class Connection {
     final messages = <String>[];
     String responseCode;
 
-    String? currentLine;
+    late String currentLine;
+    var responseLines = 0;
+    var responseLength = 0;
+    final responseTimer = Stopwatch()..start();
 
     // A response from the server always has a space as the 4th character
     // for the _last_ line of a response.
     // Multi-line responses have '-' as 4th character except for the last
     // line.
-    while (currentLine == null || (currentLine.length > 3 && currentLine[3] != ' ')) {
-      var hasNext = await _socketIn!.hasNext.timeout(timeout);
+    while (true) {
+      final remaining = timeout - responseTimer.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException('SMTP response timed out', timeout);
+      }
+      var hasNext = await _socketIn!.hasNext.timeout(remaining);
       if (!hasNext) {
         throw SmtpClientCommunicationException(
             'Socket was closed even though a response was expected.');
@@ -92,26 +107,42 @@ class Connection {
       // This is possible if we for instance connect to an SSL port where the
       // socket connection succeeds, but we never receive anything because we
       // are stuck in the SSL negotiation process.
-      currentLine = await _socketIn!.next.timeout(timeout);
+      final nextRemaining = timeout - responseTimer.elapsed;
+      if (nextRemaining <= Duration.zero) {
+        throw TimeoutException('SMTP response timed out', timeout);
+      }
+      currentLine = await _socketIn!.next.timeout(nextRemaining);
 
-      messages.add(currentLine.substring(4));
+      if (currentLine.length < 3 || !_responsePrefix.hasMatch(currentLine)) {
+        throw SmtpClientCommunicationException('Malformed SMTP response');
+      }
+      responseLines++;
+      responseLength += currentLine.length;
+      if (responseLines > _maxResponseLines || responseLength > _maxResponseLength) {
+        throw SmtpClientCommunicationException('SMTP response is too long');
+      }
+
+      messages.add(currentLine.length == 3 ? '' : currentLine.substring(4));
+      if (currentLine.length == 3 || currentLine[3] == ' ') break;
     }
 
     responseCode = currentLine.substring(0, 3);
 
     var mString = messages.map((m) => '< $responseCode $m').join('\n');
-    _logger.fine(mString);
+    final responseForLogs = private ? '< $responseCode [redacted]' : mString;
+    _logger.fine(responseForLogs);
 
     if (acceptedRespCodes != null &&
         acceptedRespCodes.isNotEmpty &&
         !acceptedRespCodes.any((start) => responseCode.startsWith(start))) {
-      var msg = 'After sending $command, response did not start with any of: $acceptedRespCodes.';
-      msg += '\nResponse from server: $mString';
+      var msg = 'After sending ${private ? '[redacted]' : command}, '
+          'response did not start with any of: $acceptedRespCodes.';
+      msg += '\nResponse from server: $responseForLogs';
       _logger.warning(msg);
       throw SmtpClientCommunicationException(msg);
     }
 
-    return ServerResponse(responseCode, messages);
+    return ServerResponse(responseCode, private ? ['[redacted]'] : messages);
   }
 
   /// Upgrades the connection to use TLS.
@@ -146,11 +177,17 @@ class Connection {
     if (_socketIn != null) await _socketIn!.cancel(immediate: true);
   }
 
+  /// Abandon a failed transaction without flushing data or sending QUIT.
+  Future<void> abort() async {
+    _socket?.destroy();
+    if (_socketIn != null) await _socketIn!.cancel(immediate: true);
+  }
+
   void _setSocketIn() {
     if (_socketIn != null) {
       _socketIn!.cancel();
     }
-    _socketIn = StreamQueue<String>(utf8.decoder.bind(_socket!).transform(const LineSplitter()));
+    _socketIn = StreamQueue<String>(_boundedLines(_socket!));
   }
 
   void verifySecuredConnection() {
@@ -159,4 +196,24 @@ class Connection {
       throw SmtpUnsecureException('Aborting because connection is not secure');
     }
   }
+}
+
+Stream<String> _boundedLines(Stream<List<int>> input) async* {
+  var line = StringBuffer();
+  await for (final chunk in utf8.decoder.bind(input)) {
+    for (final unit in chunk.codeUnits) {
+      if (unit == 10) {
+        var value = line.toString();
+        if (value.endsWith('\r')) value = value.substring(0, value.length - 1);
+        yield value;
+        line = StringBuffer();
+      } else {
+        if (line.length >= _maxResponseLineLength) {
+          throw SmtpClientCommunicationException('SMTP response line is too long');
+        }
+        line.writeCharCode(unit);
+      }
+    }
+  }
+  if (line.isNotEmpty) yield line.toString();
 }
