@@ -10,6 +10,8 @@ abstract class Header extends _MimeOutput {
 
   static const _b64Length = 12; // "=?utf-8?B?".length + "?=".length
   static final _nonAscii = RegExp(r'[^\x20-\x7E]');
+  // rfc5322 2.2: printable US-ASCII characters except colon.
+  static final _validName = RegExp(r'^[\x21-\x39\x3B-\x7E]+$');
 
   String _buildValueWithParms(String value, RenderContext renderContext,
       [Map<String, String>? parms]) {
@@ -27,7 +29,8 @@ abstract class Header extends _MimeOutput {
           buffer.write(_encodeBase64(entry.value));
           buffer.write('"');
         } else {
-          buffer.write('; ${entry.key}="${entry.value}"');
+          final escaped = entry.value.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+          buffer.write('; ${entry.key}="$escaped"');
         }
       }
     }
@@ -43,7 +46,7 @@ abstract class Header extends _MimeOutput {
     int len = 2; //2 = _$commaSpace
     var second = false;
     for (final address in addresses) {
-      final name = address.sanitizedName, mAddr = address.encodedAddress;
+      final name = address.sanitizedName, mAddr = _safeHeaderAddress(address);
       var addrLen = mAddr.length;
       if (name != null) {
         addrLen += name.length + 3;
@@ -118,7 +121,11 @@ abstract class Header extends _MimeOutput {
         (!renderContext.capabilities.smtpUtf8 && value.contains(_nonAscii)));
   }
 
-  Header(this._name);
+  Header(this._name) {
+    if (!_validName.hasMatch(_name)) {
+      throw InvalidHeaderException('Invalid header name');
+    }
+  }
 }
 
 class TextHeader extends Header {
@@ -135,7 +142,9 @@ class TextHeader extends Header {
 class AddressHeader extends Header {
   final Address _address;
 
-  AddressHeader(super.name, this._address);
+  AddressHeader(super.name, this._address) {
+    _safeHeaderAddress(_address);
+  }
 
   @override
   String render(RenderContext renderContext) => _buildAddressesValue([_address], renderContext);
@@ -144,10 +153,27 @@ class AddressHeader extends Header {
 class AddressListHeader extends Header {
   final Iterable<Address> _addresses;
 
-  AddressListHeader(super.name, this._addresses);
+  AddressListHeader(super.name, this._addresses) {
+    for (final address in _addresses) {
+      _safeHeaderAddress(address);
+    }
+  }
 
   @override
   String render(RenderContext renderContext) => _buildAddressesValue(_addresses, renderContext);
+}
+
+final _foldingWhitespace = RegExp(r'\r\n(?=[ \t])');
+final _invalidAddressChar = RegExp(r'[\x00-\x08\x0A-\x1F\x7F]');
+
+// Header folding is legal only at CRLF followed by whitespace. Unfold it
+// before output, retaining legal HT in CFWS and rejecting all other controls.
+String _safeHeaderAddress(Address address) {
+  final value = address.encodedAddress.replaceAll(_foldingWhitespace, '');
+  if (_invalidAddressChar.hasMatch(value)) {
+    throw InvalidHeaderException('Invalid address in header');
+  }
+  return value;
 }
 
 class ContentTypeHeader extends Header {

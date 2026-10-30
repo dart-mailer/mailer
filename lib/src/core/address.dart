@@ -17,7 +17,7 @@ class Address {
 
     // Quote the name if it contains a comma or a quote.
     if (name!.contains(_quotableNameRegExp)) {
-      return '"${name!.replaceAll('"', r'\"')}"';
+      return '"${name!.replaceAll(r'\', r'\\').replaceAll('"', r'\"')}"';
     }
 
     return name;

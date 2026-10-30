@@ -1,3 +1,17 @@
+## 7.2.1
+* Security: Fix SMTP command and MIME header injection (GHSA-j9fr-mx5c-8w5v).
+  - Reject control characters in SMTP commands and `<`, `>`, spaces in unquoted envelope addresses.
+  - Validate `ccRecipients` and `bccRecipients` (new problem codes `CC_ADDRESS` and `BCC_ADDRESS`).
+  - `PersistentConnection.send` now validates messages and throws `SmtpMessageValidationException`.
+  - Reject invalid header names and control characters in address headers.
+  - Escape quotes and backslashes in quoted header parameters and display names.
+* Security: Limit SMTP server responses (GHSA-8jpq-5wmr-fpqm).
+  - Response lines are limited to 8192 characters, responses to 100 lines and 64 KiB.
+  - `timeout` now applies to the whole response instead of every line.
+* `PersistentConnection` sends messages one after another and reconnects after a failed send.
+* Accept server responses consisting only of a response code.
+  Thanks https://github.com/bsutton for reporting and providing the initial fix.
+
 ## 7.2.0
 * Upgrade `punycoder` to v0.3.0.
 * Refactor IDNA module to use `domainToAscii` and `domainToUnicode` from `punycoder`.
