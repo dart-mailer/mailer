@@ -1,3 +1,8 @@
+## 7.2.2
+* Hardening: Only use BINARYMIME if the server also supports CHUNKING (rfc3030).
+  Previously binary content could be sent with `DATA`, where a line with a single `.` ends the message.
+* Send `BODY=BINARYMIME` on `MAIL FROM` when sending binary content.
+
 ## 7.2.1
 * Security: Fix SMTP command and MIME header injection (GHSA-j9fr-mx5c-8w5v).
   - Reject control characters in SMTP commands and `<`, `>`, spaces in unquoted envelope addresses.

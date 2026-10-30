@@ -191,7 +191,9 @@ Future<void> sendSingleMessage(Message? message, Connection c, Duration? timeout
   // Tell the server the envelope from address (might be different to the
   // 'From: ' header!)
   var smtpUtf8 = capabilities.smtpUtf8;
-  await c.send('MAIL FROM:$envelopeFrom${smtpUtf8 ? ' SMTPUTF8' : ''}');
+  var binaryMime = capabilities.binaryMime && capabilities.chunking;
+  await c.send('MAIL FROM:$envelopeFrom${smtpUtf8 ? ' SMTPUTF8' : ''}'
+      '${binaryMime ? ' BODY=BINARYMIME' : ''}');
 
   // Give the server all recipients.
   // TODO what if only one address fails?
