@@ -10,7 +10,7 @@ jobs:
   publish:
     permissions:
       id-token: write # Required for OIDC authentication
-      contents: read
+      contents: write # Required to create the GitHub release
 
     runs-on: ubuntu-latest
 
@@ -30,3 +30,13 @@ jobs:
         # The '--force' is safe here because the tag and
         # environment approval act as your confirmation.
         run: dart pub publish --force
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        # Use the matching CHANGELOG.md section as release notes.
+        run: |
+          awk -v v="## ${TAG#v}" '$0 == v {f = 1; next} /^## / {f = 0} f' CHANGELOG.md > notes.md
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md
