@@ -82,6 +82,33 @@ void main() {
       expect(fullData, contains('QUIT\r\nEHLO examples.com\r\nDATA'));
     });
 
+    test('Declares BODY=BINARYMIME on MAIL FROM', () async {
+      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final message = Message()
+        ..from = 'sender@example.com'
+        ..recipients.add('recipient@example.com')
+        ..text = 'Hello World';
+
+      await send(message, smtpServer);
+
+      expect(mockServer.serverLog, contains('MAIL FROM:<sender@example.com> BODY=BINARYMIME'));
+    });
+
+    test('Ignores BINARYMIME without CHUNKING', () async {
+      mockServer.advertiseChunking = false;
+      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final message = Message()
+        ..from = 'sender@example.com'
+        ..recipients.add('recipient@example.com')
+        ..text = 'Line 1\r\n.\r\nRCPT TO:<attacker@example.net>';
+
+      await send(message, smtpServer);
+
+      expect(mockServer.serverLog, contains('MAIL FROM:<sender@example.com>'));
+      expect(mockServer.serverLog, contains('content-transfer-encoding: base64'));
+      expect(mockServer.serverLog, isNot(contains('RCPT TO:<attacker@example.net>')));
+    });
+
     // Using base64 would be allowed, but is not necessary as per RFC 3030.
     test('Does not split long lines in BINARYMIME (RFC 3030 compliance)', () async {
       // RFC 3030, Section 3:

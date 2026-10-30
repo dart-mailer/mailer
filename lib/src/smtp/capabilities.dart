@@ -65,7 +65,8 @@ class Capabilities {
       }
     }
 
+    // rfc3030 3: BINARYMIME may only be used together with CHUNKING (BDAT).
     return Capabilities._values(
-        startTls, smtpUtf8, plain, login, xoauth2, chunking, binaryMime, capabilities);
+        startTls, smtpUtf8, plain, login, xoauth2, chunking, binaryMime && chunking, capabilities);
   }
 }
