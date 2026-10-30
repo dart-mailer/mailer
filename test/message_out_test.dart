@@ -86,4 +86,30 @@ void main() {
             completion(equals(true)),
             reason: '${tcWithoutUtf8.name} (smtpUtf8 false)'));
   }
+
+  group('header injection', () {
+    Message message() => Message()
+      ..from = 'sender@example.com'
+      ..recipients.add('recipient@example.com')
+      ..text = 'hello';
+
+    Future<String> render(Message message) async => utf8.decode(
+        await MimeMessage(message).data(capabilitiesForTesting()).expand((part) => part).toList());
+
+    test('address header with CRLF is rejected', () {
+      final m = message()..headers['reply-to'] = const Address('a@example.com\r\nx-injected: yes');
+      expect(() => MimeMessage(m), throwsA(isA<InvalidHeaderException>()));
+    });
+
+    test('folding whitespace in address headers is unfolded', () async {
+      final m = message()..headers['reply-to'] = const Address('bob@example.com\r\n (Support)');
+      expect(await render(m), contains('reply-to: bob@example.com (Support)\r\n'));
+    });
+
+    test('attachment filename remains inside its quoted parameter', () async {
+      final m = message()
+        ..attachments.add(StringAttachment('x', fileName: r'a\"; x-injected="yes'));
+      expect(await render(m), contains(r'filename="a\\\"; x-injected=\"yes"'));
+    });
+  });
 }

@@ -183,7 +183,7 @@ Future<void> close(Connection? connection) async {
 Future<void> sendSingleMessage(Message? message, Connection c, Duration? timeout) async {
   var irMessage = MimeMessage(message);
   // Validate every path before issuing even the first envelope command.
-  final envelopeFrom = smtpPath(irMessage.envelopeFrom);
+  final envelopeFrom = smtpPath(irMessage.envelopeFrom, allowNull: true);
   final envelopeTos = irMessage.envelopeTos.map((address) => smtpPath(address!)).toList();
 
   var capabilities = c.capabilities;

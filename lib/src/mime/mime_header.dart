@@ -10,6 +10,8 @@ abstract class Header extends _MimeOutput {
 
   static const _b64Length = 12; // "=?utf-8?B?".length + "?=".length
   static final _nonAscii = RegExp(r'[^\x20-\x7E]');
+  // rfc5322 2.2: printable US-ASCII characters except colon.
+  static final _validName = RegExp(r'^[\x21-\x39\x3B-\x7E]+$');
 
   String _buildValueWithParms(String value, RenderContext renderContext,
       [Map<String, String>? parms]) {
@@ -120,7 +122,7 @@ abstract class Header extends _MimeOutput {
   }
 
   Header(this._name) {
-    if (!RegExp(r'^[\x21-\x39\x3B-\x7E]+$').hasMatch(_name)) {
+    if (!_validName.hasMatch(_name)) {
       throw InvalidHeaderException('Invalid header name');
     }
   }
@@ -161,11 +163,14 @@ class AddressListHeader extends Header {
   String render(RenderContext renderContext) => _buildAddressesValue(_addresses, renderContext);
 }
 
+final _foldingWhitespace = RegExp(r'\r\n(?=[ \t])');
+final _invalidAddressChar = RegExp(r'[\x00-\x08\x0A-\x1F\x7F]');
+
 // Header folding is legal only at CRLF followed by whitespace. Unfold it
 // before output, retaining legal HT in CFWS and rejecting all other controls.
 String _safeHeaderAddress(Address address) {
-  final value = address.encodedAddress.replaceAll(RegExp(r'\r\n(?=[ \t])'), '');
-  if (RegExp(r'[\x00-\x08\x0A-\x1F\x7F]').hasMatch(value)) {
+  final value = address.encodedAddress.replaceAll(_foldingWhitespace, '');
+  if (_invalidAddressChar.hasMatch(value)) {
     throw InvalidHeaderException('Invalid address in header');
   }
   return value;

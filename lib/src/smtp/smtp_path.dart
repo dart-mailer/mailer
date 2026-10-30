@@ -24,7 +24,10 @@ bool isSafeSmtpMailbox(String address) {
 
 /// Serialize one mailbox as an SMTP path independently of user validators.
 /// Local-only mailboxes remain available to permissive validators.
-String smtpPath(String address) {
+/// If [allowNull] is true an empty [address] is sent as the null
+/// reverse-path `<>` (rfc5321 4.5.5).
+String smtpPath(String address, {bool allowNull = false}) {
+  if (allowNull && address.isEmpty) return '<>';
   if (!isSafeSmtpMailbox(address)) {
     throw SmtpClientCommunicationException('Invalid SMTP envelope address');
   }

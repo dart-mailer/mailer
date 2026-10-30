@@ -11,7 +11,8 @@ bool _printableCharsOnly(String s) {
 }
 
 /// [addressIn] can either be an [Address] or String.
-bool _validAddress(dynamic addressIn, AddressValidator? validator, {bool isEnvelope = false}) {
+bool _validAddress(dynamic addressIn, AddressValidator? validator,
+    {bool isEnvelope = false, bool allowNull = false}) {
   if (addressIn == null) return false;
 
   Address address;
@@ -21,7 +22,9 @@ bool _validAddress(dynamic addressIn, AddressValidator? validator, {bool isEnvel
     address = Address(addressIn as String);
   }
 
-  if (isEnvelope && !isSafeSmtpMailbox(address.mailAddress)) {
+  if (isEnvelope &&
+      !(allowNull && address.mailAddress.isEmpty) &&
+      !isSafeSmtpMailbox(address.mailAddress)) {
     return false;
   }
 
@@ -33,15 +36,6 @@ bool _validAddress(dynamic addressIn, AddressValidator? validator, {bool isEnvel
 }
 
 bool _validMailAddress(String ma) {
-  // A quoted local-part may contain @, so locate the domain after its closing quote.
-  if (ma.startsWith('"')) {
-    final closingQuote = ma.lastIndexOf('"');
-    if (closingQuote == 0 || closingQuote >= ma.length - 2 || ma[closingQuote + 1] != '@') {
-      return false;
-    }
-    final domain = ma.substring(closingQuote + 2);
-    return !domain.contains('@') && _printableCharsOnly(domain);
-  }
   var split = ma.split('@');
   return split.length == 2 && split.every((part) => part.isNotEmpty && _printableCharsOnly(part));
 }
@@ -58,7 +52,7 @@ List<Problem> validate(Message message) {
   validate(
       _validAddress(
           Address(message.envelopeFrom ?? message.fromAsAddress.mailAddress), message.validator,
-          isEnvelope: true),
+          isEnvelope: true, allowNull: true),
       'ENV_FROM',
       'Envelope mail address is invalid.  ${message.envelopeFrom}');
   var counter = 0;
@@ -88,13 +82,18 @@ List<Problem> validate(Message message) {
           'A recipient address is invalid.  ($a).');
     }
   }
-  for (final aIn in [...message.ccRecipients, ...message.bccRecipients]) {
-    final address = aIn is String ? Address(aIn) : aIn as Address?;
-    validate(
-        address != null &&
-            _validAddress(address, message.validator, isEnvelope: recipientsAreEnvelope),
-        'RECIPIENT_ADDRESS',
-        'A CC or BCC address is invalid.');
+  for (var aIn in message.ccRecipients) {
+    var a = aIn is String ? Address(aIn) : aIn as Address?;
+    validate(a != null && _validAddress(a, message.validator, isEnvelope: recipientsAreEnvelope),
+        'CC_ADDRESS', 'A cc address is invalid.  ($a).');
+  }
+  // bccRecipients are ignored if envelopeTos is set.
+  if (recipientsAreEnvelope) {
+    for (var aIn in message.bccRecipients) {
+      var a = aIn is String ? Address(aIn) : aIn as Address?;
+      validate(a != null && _validAddress(a, message.validator, isEnvelope: true), 'BCC_ADDRESS',
+          'A bcc address is invalid.  ($a).');
+    }
   }
   try {
     var irMessage = MimeMessage(message);

@@ -25,7 +25,7 @@ class PersistentConnection {
 
   PersistentConnection(SmtpServer smtpServer, {Duration? timeout}) {
     _mailSendTasks.asyncMap<void>((_MailSendTask task) async {
-      _logger.finer('New mail sending task.');
+      _logger.finer('New mail sending task.  ${task.message?.subject}');
       try {
         if (task.message == null) {
           // Close connection.
@@ -59,6 +59,7 @@ class PersistentConnection {
   /// [SmtpUnsecureException],
   /// [SmtpClientCommunicationException],
   /// [SocketException]     // Connection dropped
+  /// [SmtpMessageValidationException]
   /// Please report other exceptions you encounter.
   Future<SendReport> send(Message message) async {
     _validate(message);
@@ -125,7 +126,7 @@ void _validate(Message message) {
   var validationProblems = validate(message);
   if (validationProblems.isNotEmpty) {
     _logger.severe('Message validation error: '
-        '${validationProblems.map((p) => p.code).join('|')}');
+        '${validationProblems.map((p) => p.msg).join('|')}');
     throw SmtpMessageValidationException('Invalid message.', validationProblems);
   }
 }

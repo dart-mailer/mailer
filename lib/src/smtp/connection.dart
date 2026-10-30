@@ -84,20 +84,24 @@ class Connection {
     String responseCode;
 
     late String currentLine;
-    var responseLines = 0;
     var responseLength = 0;
+
+    // [timeout] applies to the whole response, not to every single line.
     final responseTimer = Stopwatch()..start();
+    Duration remaining() {
+      final remaining = timeout - responseTimer.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException('SMTP response timed out', timeout);
+      }
+      return remaining;
+    }
 
     // A response from the server always has a space as the 4th character
     // for the _last_ line of a response.
     // Multi-line responses have '-' as 4th character except for the last
     // line.
     while (true) {
-      final remaining = timeout - responseTimer.elapsed;
-      if (remaining <= Duration.zero) {
-        throw TimeoutException('SMTP response timed out', timeout);
-      }
-      var hasNext = await _socketIn!.hasNext.timeout(remaining);
+      var hasNext = await _socketIn!.hasNext.timeout(remaining());
       if (!hasNext) {
         throw SmtpClientCommunicationException(
             'Socket was closed even though a response was expected.');
@@ -107,21 +111,17 @@ class Connection {
       // This is possible if we for instance connect to an SSL port where the
       // socket connection succeeds, but we never receive anything because we
       // are stuck in the SSL negotiation process.
-      final nextRemaining = timeout - responseTimer.elapsed;
-      if (nextRemaining <= Duration.zero) {
-        throw TimeoutException('SMTP response timed out', timeout);
-      }
-      currentLine = await _socketIn!.next.timeout(nextRemaining);
+      currentLine = await _socketIn!.next.timeout(remaining());
 
-      if (currentLine.length < 3 || !_responsePrefix.hasMatch(currentLine)) {
+      if (!_responsePrefix.hasMatch(currentLine)) {
         throw SmtpClientCommunicationException('Malformed SMTP response');
       }
-      responseLines++;
       responseLength += currentLine.length;
-      if (responseLines > _maxResponseLines || responseLength > _maxResponseLength) {
+      if (messages.length >= _maxResponseLines || responseLength > _maxResponseLength) {
         throw SmtpClientCommunicationException('SMTP response is too long');
       }
 
+      // Some servers send a bare response code without text.
       messages.add(currentLine.length == 3 ? '' : currentLine.substring(4));
       if (currentLine.length == 3 || currentLine[3] == ' ') break;
     }
@@ -129,20 +129,19 @@ class Connection {
     responseCode = currentLine.substring(0, 3);
 
     var mString = messages.map((m) => '< $responseCode $m').join('\n');
-    final responseForLogs = private ? '< $responseCode [redacted]' : mString;
-    _logger.fine(responseForLogs);
+    _logger.fine(mString);
 
     if (acceptedRespCodes != null &&
         acceptedRespCodes.isNotEmpty &&
         !acceptedRespCodes.any((start) => responseCode.startsWith(start))) {
-      var msg = 'After sending ${private ? '[redacted]' : command}, '
+      var msg = 'After sending ${private ? '*******' : command}, '
           'response did not start with any of: $acceptedRespCodes.';
-      msg += '\nResponse from server: $responseForLogs';
+      msg += '\nResponse from server: $mString';
       _logger.warning(msg);
       throw SmtpClientCommunicationException(msg);
     }
 
-    return ServerResponse(responseCode, private ? ['[redacted]'] : messages);
+    return ServerResponse(responseCode, messages);
   }
 
   /// Upgrades the connection to use TLS.

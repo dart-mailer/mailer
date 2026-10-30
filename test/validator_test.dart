@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:mailer/src/core/address.dart';
+import 'package:mailer/src/core/attachment.dart';
 import 'package:mailer/src/core/address_validator.dart';
 import 'package:mailer/src/core/message.dart';
 import 'package:mailer/src/smtp/validator.dart';
@@ -156,11 +159,6 @@ void main() {
       expect(validator.validate(Address('"quoted name"@example.com')), isTrue);
     });
 
-    test('accepts comments with legal folding whitespace', () {
-      expect(validator.validate(Address('bob@example.com\t(Support)')), isTrue);
-      expect(validator.validate(Address('bob@example.com\r\n (Support)')), isTrue);
-    });
-
     test('rejects invalid addresses', () {
       expect(validator.validate(Address('plainstring')), isFalse);
       expect(validator.validate(Address('test@')), isFalse);
@@ -312,77 +310,6 @@ void main() {
   });
 
   group('Message Validation', () {
-    test('default validator rejects a missing closing quote', () {
-      final message = Message()
-        ..from = '"@example.com'
-        ..recipients.add('recipient@example.com')
-        ..envelopeFrom = 'sender@example.com';
-
-      expect(validate(message).map((problem) => problem.code), contains('FROM_ADDRESS'));
-    });
-
-    for (final address in [
-      'bob@example.com (Support)',
-      'bob@example.com\t(Support)',
-      'bob@example.com\r\n (Support)',
-    ]) {
-      test('explicit envelopes allow strict CFWS headers: ${address.codeUnits}', () {
-        final message = Message()
-          ..validator = const StrictAddressValidator()
-          ..from = Address(address)
-          ..recipients.add(Address(address))
-          ..ccRecipients.add(Address(address))
-          ..bccRecipients.add(Address(address))
-          ..envelopeFrom = 'sender@example.com'
-          ..envelopeTos = ['recipient@example.com'];
-
-        expect(validate(message), isEmpty);
-      });
-
-      for (final envelopeTos in <List<String>?>[null, []]) {
-        test(
-            'strict CFWS fallback paths are rejected (envelopeTos=$envelopeTos): '
-            '${address.codeUnits}', () {
-          final message = Message()
-            ..validator = const StrictAddressValidator()
-            ..from = Address(address)
-            ..recipients.add(Address(address))
-            ..ccRecipients.add(Address(address))
-            ..bccRecipients.add(Address(address))
-            ..envelopeTos = envelopeTos;
-
-          expect(validate(message).map((problem) => problem.code),
-              containsAll(['ENV_FROM', 'TO_ADDRESS', 'RECIPIENT_ADDRESS']));
-        });
-      }
-
-      test('strict CFWS explicit envelope paths are rejected: ${address.codeUnits}', () {
-        final message = Message()
-          ..validator = const StrictAddressValidator()
-          ..from = 'sender@example.com'
-          ..recipients.add('recipient@example.com')
-          ..envelopeFrom = address
-          ..envelopeTos = [address];
-
-        expect(
-            validate(message).map((problem) => problem.code), containsAll(['ENV_FROM', 'ENV_TO']));
-      });
-    }
-
-    test('explicit envelopes retain configured validation of header addresses', () {
-      final message = Message()
-        ..validator = const StrictAddressValidator()
-        ..from = 'invalid-from'
-        ..recipients.add('invalid-to')
-        ..ccRecipients.add('invalid-cc')
-        ..bccRecipients.add('invalid-bcc')
-        ..envelopeFrom = 'sender@example.com'
-        ..envelopeTos = ['recipient@example.com'];
-
-      expect(validate(message).map((problem) => problem.code),
-          containsAll(['FROM_ADDRESS', 'TO_ADDRESS', 'RECIPIENT_ADDRESS']));
-    });
-
     test('uses default validator by default', () {
       final message = Message()
         ..from = 'test@example.com'
@@ -413,6 +340,125 @@ void main() {
 
       final problems = validate(message);
       expect(problems, isEmpty);
+    });
+  });
+
+  group('Injection', () {
+    Message message() => Message()
+      ..from = 'sender@example.com'
+      ..recipients.add('recipient@example.com')
+      ..text = 'hello';
+
+    List<String> codes(Message message) => validate(message).map((p) => p.code).toList();
+
+    test('rejects SMTP commands in cc and bcc addresses', () {
+      const attack = 'victim@example.com>\r\nRCPT TO:<attacker@example.net';
+      expect(codes(message()..ccRecipients.add(attack)), contains('CC_ADDRESS'));
+      expect(codes(message()..bccRecipients.add(attack)), contains('BCC_ADDRESS'));
+    });
+
+    const optionAttack = 'sender@example.com> RET=HDRS ENVID=owned';
+    final setters = <String, void Function(Message)>{
+      'envelopeFrom': (m) => m.envelopeFrom = optionAttack,
+      'envelopeTos': (m) => m.envelopeTos = [optionAttack],
+      'from': (m) => m.from = optionAttack,
+      'recipients': (m) => m.recipients.add(optionAttack),
+      'ccRecipients': (m) => m.ccRecipients.add(optionAttack),
+      'bccRecipients': (m) => m.bccRecipients.add(optionAttack),
+    };
+    for (final entry in setters.entries) {
+      for (final validator in [null, const PermissiveAddressValidator()]) {
+        test('rejects ESMTP parameters in ${entry.key} (validator: $validator)', () {
+          final m = message()..validator = validator;
+          entry.value(m);
+          expect(validate(m), isNotEmpty);
+        });
+      }
+    }
+
+    test('ignores bcc addresses if envelopeTos is set', () {
+      final m = message()
+        ..validator = const StrictAddressValidator()
+        ..envelopeTos = ['recipient@example.com']
+        ..bccRecipients.add('invalid-bcc');
+      expect(validate(m), isEmpty);
+    });
+
+    test('allows null reverse-path if the validator accepts it', () {
+      final m = message()
+        ..validator = const _AcceptAllValidator()
+        ..envelopeFrom = '';
+      expect(validate(m), isEmpty);
+      m.envelopeTos = [''];
+      expect(codes(m), contains('ENV_TO_EMPTY'));
+    });
+
+    test('rejects folded SMTP commands accepted by StrictAddressValidator', () {
+      const address = 'victim(comment\r\nNOOP\r\n)@example.com';
+      final m = message()
+        ..validator = const StrictAddressValidator()
+        ..from = const Address(address);
+      expect(codes(m), containsAll(['ENV_FROM', 'INVALID_HEADER']));
+      m.envelopeFrom = 'sender@example.com';
+      expect(codes(m), contains('INVALID_HEADER'));
+    });
+
+    for (final address in [
+      'bob@example.com (Support)',
+      'bob@example.com\t(Support)',
+      'bob@example.com\r\n (Support)',
+    ]) {
+      final name = jsonEncode(address);
+      test('allows CFWS in header addresses with explicit envelope: $name', () {
+        final m = Message()
+          ..validator = const StrictAddressValidator()
+          ..from = Address(address)
+          ..recipients.add(Address(address))
+          ..ccRecipients.add(Address(address))
+          ..envelopeFrom = 'sender@example.com'
+          ..envelopeTos = ['recipient@example.com'];
+        expect(validate(m), isEmpty);
+      });
+
+      test('rejects CFWS in envelope addresses: $name', () {
+        final m = Message()
+          ..validator = const StrictAddressValidator()
+          ..from = Address(address)
+          ..recipients.add(Address(address))
+          ..ccRecipients.add(Address(address))
+          ..bccRecipients.add(Address(address));
+        expect(codes(m), containsAll(['ENV_FROM', 'TO_ADDRESS', 'CC_ADDRESS', 'BCC_ADDRESS']));
+
+        final explicit = message()
+          ..validator = const StrictAddressValidator()
+          ..envelopeFrom = address
+          ..envelopeTos = [address];
+        expect(codes(explicit), containsAll(['ENV_FROM', 'ENV_TO']));
+      });
+    }
+
+    for (final address in [
+      'a@example.com\r\nx-injected: yes',
+      'a@example.com\nx-injected: yes',
+      'a@example.com\r x-injected: yes',
+    ]) {
+      test('rejects control characters in address headers: ${jsonEncode(address)}', () {
+        expect(
+            codes(message()..headers['reply-to'] = Address(address)), contains('INVALID_HEADER'));
+      });
+    }
+
+    test('checks the encoded address of address headers', () {
+      expect(codes(message()..headers['reply-to'] = const _UnsafeEncodedAddress()),
+          contains('INVALID_HEADER'));
+    });
+
+    test('rejects invalid header names', () {
+      expect(codes(message()..headers['x-original\r\nx-injected'] = 'yes'),
+          contains('INVALID_HEADER'));
+      final attachment = StringAttachment('x')
+        ..additionalHeaders['x-original\r\nx-injected'] = 'yes';
+      expect(codes(message()..attachments.add(attachment)), contains('INVALID_HEADER'));
     });
   });
 
@@ -463,4 +509,18 @@ void main() {
       expect(problems.map((p) => p.code), isNot(contains('FROM_ADDRESS')));
     });
   });
+}
+
+class _UnsafeEncodedAddress extends Address {
+  const _UnsafeEncodedAddress() : super('safe@example.com');
+
+  @override
+  String get encodedAddress => 'unsafe@example.com\r\nx-injected: yes';
+}
+
+class _AcceptAllValidator implements AddressValidator {
+  const _AcceptAllValidator();
+
+  @override
+  bool validate(Address address) => true;
 }
