@@ -17,6 +17,24 @@ It supports:
 *   **Custom Address Validation** strategies (strict, permissive, etc.).
 *   **Pre-configured services** (Gmail, Yahoo, Hotmail, etc.) and generic SMTP support.
 
+## Security Advisories
+
+Versions **<= 7.2.0** are affected by two vulnerabilities, fixed in **7.2.1**:
+
+| Advisory | Severity | You are affected if… |
+|---|---|---|
+| [GHSA-j9fr-mx5c-8w5v](https://github.com/dart-mailer/mailer/security/advisories/GHSA-j9fr-mx5c-8w5v) SMTP command and MIME header injection | High | any address (`from`, `recipients`, `ccRecipients`, `bccRecipients`, `envelopeFrom`, `envelopeTos`), display name, header or attachment file name is influenced by user input (contact forms, sign-ups, user-supplied recipient lists, …). |
+| [GHSA-8jpq-5wmr-fpqm](https://github.com/dart-mailer/mailer/security/advisories/GHSA-8jpq-5wmr-fpqm) Unbounded SMTP server responses | Medium | you connect to SMTP servers you don't fully trust (e.g. user-configured servers) or without TLS, or you rely on `timeout` to limit how long sending can take. |
+
+**Update immediately** if any row applies to you.
+If all addresses and headers are fixed in your code and you only use a trusted provider over TLS, you are not exposed, but you should still update.
+
+7.2.1 is stricter, so some messages that were sent before are now rejected:
+*   `ccRecipients` and `bccRecipients` are validated (problem codes `CC_ADDRESS` and `BCC_ADDRESS`).
+*   `PersistentConnection.send` validates messages and throws `SmtpMessageValidationException`.
+*   Envelope addresses must not contain control characters, or `<`, `>`, `"`, `\` and spaces outside a quoted local part.
+*   Header names must be valid and address headers must not contain control characters.
+
 ## Usage
 
 ### Simple Example (Gmail)
@@ -115,6 +133,9 @@ await connection.send(message2);
 
 await connection.close();
 ```
+
+Like `send`, `PersistentConnection.send` validates every message and throws a
+`SmtpMessageValidationException` if it is invalid.
 
 
 ## Documentation
