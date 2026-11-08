@@ -34,10 +34,18 @@ class SmtpServer {
   /// Send text and attachments unencoded (rfc3030 BINARYMIME), if the server
   /// supports it.
   ///
-  /// This reduces the size of messages with attachments by about 25%.
-  /// However, the message is bounced if a relay on the route needs to forward
-  /// it to a server without BINARYMIME and isn't able to convert it.
-  /// Only enable this if the whole route supports BINARYMIME.
+  /// This reduces the size of messages with attachments by about 25%, but only
+  /// between this client and the server.
+  ///
+  /// Only enable this if the server converts binary messages (to base64) when it
+  /// relays them to a server without BINARYMIME, or if every server on the
+  /// route supports BINARYMIME.  Few servers support BINARYMIME (e.g. Microsoft
+  /// Exchange does, Gmail, Postfix and Exim don't), and rfc3030 allows relays
+  /// to bounce binary messages instead of converting them.
+  ///
+  /// If the message is DKIM signed before it is converted, the conversion
+  /// breaks the signature.  The message may then be classified as spam or
+  /// rejected, without a bounce.
   final bool useBinaryMime;
 
   SmtpServer(this.host,

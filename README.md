@@ -11,8 +11,8 @@ It supports:
 *   **Plaintext and HTML** emails.
 *   **Attachments** (files, streams, etc.).
 *   **Inline images** (using CID).
-*   **Unicode** support.
-*   **RFC 3030** (CHUNKING) for efficient large file transfer.
+*   **Unicode** support (SMTPUTF8 is only used when an address requires it).
+*   **RFC 3030** (CHUNKING, opt-in BINARYMIME) for efficient large file transfer.
 *   **Secure connections** (TLS/SSL) with context-aware sanitization.
 *   **Custom Address Validation** strategies (strict, permissive, etc.).
 *   **Pre-configured services** (Gmail, Yahoo, Hotmail, etc.) and generic SMTP support.
@@ -34,6 +34,20 @@ If all addresses and headers are fixed in your code and you only use a trusted p
 *   `PersistentConnection.send` validates messages and throws `SmtpMessageValidationException`.
 *   Envelope addresses must not contain control characters, or `<`, `>`, `"`, `\` and spaces outside a quoted local part.
 *   Header names must be valid and address headers must not contain control characters.
+
+## Changes in 7.3.0
+
+7.3.0 changes how messages are encoded, to avoid bounces further down the route:
+*   **SMTPUTF8** is only used if an address has a non-ASCII local part (e.g. `jörg@example.com`).
+    Previously it was used whenever the server offered it, and headers (sender name, subject,
+    attachment names, …) were sent as raw UTF-8. Relays bounced such messages if the next server
+    didn't support SMTPUTF8 ([#279](https://github.com/dart-mailer/mailer/issues/279)).
+    Headers are now encoded (RFC 2047) instead.
+*   **International domains** in the envelope (`MAIL FROM`, `RCPT TO`) are sent in punycode,
+    like in the headers.
+*   **BINARYMIME** is opt-in (`SmtpServer(..., useBinaryMime: true)`).
+    Text and attachments are base64 encoded by default, even if the server offers BINARYMIME.
+    See the [FAQ](#faq) before enabling it.
 
 ## Usage
 
@@ -189,6 +203,15 @@ void main() {
 
 **Q: How do I handle large attachments?**
 A: `mailer` supports RFC 3030 (CHUNKING). If the server supports it, `mailer` will automatically stream the data using `BDAT` commands, which is more efficient than the standard `DATA` command.
+
+**Q: Should I enable `useBinaryMime`?**
+A: Usually not. BINARYMIME sends text and attachments unencoded, which saves about 25%, but only
+between your client and your SMTP server. If the server relays the message to a server without
+BINARYMIME, it must convert the message to base64 or bounce it (RFC 3030 allows both). Few servers
+support BINARYMIME (Microsoft Exchange does, Gmail, Postfix and Exim don't). Also, if the message is
+DKIM signed before the conversion, the signature breaks, and the message may be classified as spam
+without a bounce. Only enable it if your SMTP server converts binary messages, or if every server on
+the route supports BINARYMIME.
 
 **Q: How do I use Gmail with 2FA?**
 A: You must generate an **App Password** in your Google Account settings and use that instead of your standard password.

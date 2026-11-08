@@ -6,7 +6,8 @@
 * Convert domains of envelope addresses (`MAIL FROM`, `RCPT TO`) to punycode, like in the headers.
 * BINARYMIME is now opt-in (`SmtpServer(..., useBinaryMime: true)`).
   Previously it was used whenever the server offered it, which could lead to bounces if a relay
-  could not forward the binary message.
+  could not forward the binary message, or to broken DKIM signatures if a relay converted it.
+  See the README before enabling it.
 
 ## 7.2.2
 * Hardening: Only use BINARYMIME if the server also supports CHUNKING (rfc3030).
