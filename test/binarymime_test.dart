@@ -20,7 +20,8 @@ void main() {
     });
 
     test('Sends binary content when BINARYMIME is supported', () async {
-      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final smtpServer =
+          SmtpServer('localhost', port: mockServer.port, allowInsecure: true, useBinaryMime: true);
       final message = Message()
         ..from = 'sender@example.com'
         ..recipients.add('recipient@example.com')
@@ -37,7 +38,8 @@ void main() {
 
     test('Falls back to Base64 when BINARYMIME is NOT supported', () async {
       mockServer.advertiseBinaryMime = false;
-      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final smtpServer =
+          SmtpServer('localhost', port: mockServer.port, allowInsecure: true, useBinaryMime: true);
       final message = Message()
         ..from = 'sender@example.com'
         ..recipients.add('recipient@example.com')
@@ -52,7 +54,8 @@ void main() {
     });
 
     test('Handles single dot on a line correctly in BINARYMIME', () async {
-      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final smtpServer =
+          SmtpServer('localhost', port: mockServer.port, allowInsecure: true, useBinaryMime: true);
       final message = Message()
         ..from = 'sender@example.com'
         ..recipients.add('recipient@example.com')
@@ -68,7 +71,8 @@ void main() {
     });
 
     test('Handles SMTP keywords in content correctly in BINARYMIME', () async {
-      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final smtpServer =
+          SmtpServer('localhost', port: mockServer.port, allowInsecure: true, useBinaryMime: true);
       final message = Message()
         ..from = 'sender@example.com'
         ..recipients.add('recipient@example.com')
@@ -83,7 +87,8 @@ void main() {
     });
 
     test('Declares BODY=BINARYMIME on MAIL FROM', () async {
-      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final smtpServer =
+          SmtpServer('localhost', port: mockServer.port, allowInsecure: true, useBinaryMime: true);
       final message = Message()
         ..from = 'sender@example.com'
         ..recipients.add('recipient@example.com')
@@ -94,9 +99,25 @@ void main() {
       expect(mockServer.serverLog, contains('MAIL FROM:<sender@example.com> BODY=BINARYMIME'));
     });
 
+    test('Does not use BINARYMIME by default', () async {
+      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final message = Message()
+        ..from = 'sender@example.com'
+        ..recipients.add('recipient@example.com')
+        ..text = 'Hello World';
+
+      await send(message, smtpServer);
+
+      expect(mockServer.serverLog, contains('MAIL FROM:<sender@example.com>'));
+      var fullData = utf8.decode(mockServer.bdatData);
+      expect(fullData, contains('content-transfer-encoding: base64'));
+      expect(fullData, contains('SGVsbG8gV29ybGQNCg=='));
+    });
+
     test('Ignores BINARYMIME without CHUNKING', () async {
       mockServer.advertiseChunking = false;
-      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final smtpServer =
+          SmtpServer('localhost', port: mockServer.port, allowInsecure: true, useBinaryMime: true);
       final message = Message()
         ..from = 'sender@example.com'
         ..recipients.add('recipient@example.com')
@@ -125,7 +146,8 @@ void main() {
       // server needs to relay to a non-BINARYMIME server, IT is responsible for
       // the downgrade (encoding/wrapping).
 
-      final smtpServer = SmtpServer('localhost', port: mockServer.port, allowInsecure: true);
+      final smtpServer =
+          SmtpServer('localhost', port: mockServer.port, allowInsecure: true, useBinaryMime: true);
 
       // Create a line longer than the standard 76/78 character limit
       var longLine = 'a' * 1000;

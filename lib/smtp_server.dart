@@ -31,6 +31,23 @@ class SmtpServer {
   final String? password;
   final String? xoauth2Token;
 
+  /// Send text and attachments unencoded (rfc3030 BINARYMIME), if the server
+  /// supports it.
+  ///
+  /// This reduces the size of messages with attachments by about 25%, but only
+  /// between this client and the server.
+  ///
+  /// Only enable this if the server converts binary messages (to base64) when it
+  /// relays them to a server without BINARYMIME, or if every server on the
+  /// route supports BINARYMIME.  Few servers support BINARYMIME (e.g. Microsoft
+  /// Exchange does, Gmail, Postfix and Exim don't), and rfc3030 allows relays
+  /// to bounce binary messages instead of converting them.
+  ///
+  /// If the message is DKIM signed before it is converted, the conversion
+  /// breaks the signature.  The message may then be classified as spam or
+  /// rejected, without a bounce.
+  final bool useBinaryMime;
+
   SmtpServer(this.host,
       {this.port = 587,
       this.ignoreBadCertificate = false,
@@ -38,5 +55,6 @@ class SmtpServer {
       this.allowInsecure = false,
       this.username,
       this.password,
-      this.xoauth2Token});
+      this.xoauth2Token,
+      this.useBinaryMime = false});
 }

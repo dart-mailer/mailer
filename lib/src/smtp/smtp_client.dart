@@ -186,7 +186,11 @@ Future<void> sendSingleMessage(Message? message, Connection c, Duration? timeout
   final envelopeFrom = smtpPath(irMessage.envelopeFrom, allowNull: true);
   final envelopeTos = irMessage.envelopeTos.map((address) => smtpPath(address!)).toList();
 
-  var capabilities = c.capabilities;
+  // Only use extensions which can't break delivery further down the route.
+  // A relay can't forward SMTPUTF8 or BINARYMIME messages to servers that
+  // don't support these extensions, and bounces them.
+  var capabilities = c.capabilities
+      .restrict(smtpUtf8: irMessage.requiresSmtpUtf8, binaryMime: c.server.useBinaryMime);
 
   // Tell the server the envelope from address (might be different to the
   // 'From: ' header!)

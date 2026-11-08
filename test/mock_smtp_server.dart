@@ -8,6 +8,7 @@ class MockSmtpServer {
   final List<int> bdatData = [];
   bool advertiseBinaryMime = true;
   bool advertiseChunking = true;
+  bool advertiseSmtpUtf8 = false;
 
   Future<void> start() async {
     _serverSocket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
@@ -63,6 +64,9 @@ class MockSmtpServer {
               }
               if (advertiseBinaryMime) {
                 caps += '250-BINARYMIME\r\n';
+              }
+              if (advertiseSmtpUtf8) {
+                caps += '250-SMTPUTF8\r\n';
               }
               caps += '250 AUTH PLAIN\r\n';
               socket.write(caps);
