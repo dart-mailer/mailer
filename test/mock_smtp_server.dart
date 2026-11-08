@@ -20,6 +20,10 @@ class MockSmtpServer {
   }
 
   void _handleClient(Socket socket) {
+    // The client may close the connection without waiting for our response
+    // (e.g. after QUIT). Writing to it then fails with a broken pipe, which
+    // would otherwise be reported as an unhandled error in the test.
+    socket.done.catchError((_) {});
     socket.write('220 Simple Mock Server Service Ready\r\n');
 
     var buffer = <int>[];
@@ -99,6 +103,6 @@ class MockSmtpServer {
           }
         }
       }
-    });
+    }, onError: (_) {});
   }
 }
