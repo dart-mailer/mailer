@@ -1,3 +1,13 @@
+## 7.3.0
+* Only use SMTPUTF8 if the message requires it, i.e. an address has a non-ASCII local part (#279).
+  Previously SMTPUTF8 was used whenever the server offered it, and headers were sent as raw UTF-8.
+  Relays then bounced the message if the next hop didn't support SMTPUTF8.
+  Headers are now encoded (rfc2047) instead.
+* Convert domains of envelope addresses (`MAIL FROM`, `RCPT TO`) to punycode, like in the headers.
+* BINARYMIME is now opt-in (`SmtpServer(..., useBinaryMime: true)`).
+  Previously it was used whenever the server offered it, which could lead to bounces if a relay
+  could not forward the binary message.
+
 ## 7.2.2
 * Hardening: Only use BINARYMIME if the server also supports CHUNKING (rfc3030).
   Previously binary content could be sent with `DATA`, where a line with a single `.` ends the message.

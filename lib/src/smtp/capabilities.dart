@@ -37,6 +37,18 @@ class Capabilities {
   const Capabilities._values(this.startTls, this.smtpUtf8, this.authPlain, this.authLogin,
       this.authXoauth2, this.chunking, this.binaryMime, this.all);
 
+  /// Returns a copy where [smtpUtf8] and [binaryMime] are only enabled if they
+  /// are supported by the server and requested by the arguments.
+  Capabilities restrict({bool smtpUtf8 = true, bool binaryMime = true}) => Capabilities._values(
+      startTls,
+      this.smtpUtf8 && smtpUtf8,
+      authPlain,
+      authLogin,
+      authXoauth2,
+      chunking,
+      this.binaryMime && binaryMime,
+      all);
+
   factory Capabilities.fromResponse(Iterable<String> ehloMessage) {
     final capabilities = List<String>.unmodifiable(ehloMessage.map((m) => m.toUpperCase()));
 

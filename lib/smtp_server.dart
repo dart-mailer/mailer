@@ -31,6 +31,15 @@ class SmtpServer {
   final String? password;
   final String? xoauth2Token;
 
+  /// Send text and attachments unencoded (rfc3030 BINARYMIME), if the server
+  /// supports it.
+  ///
+  /// This reduces the size of messages with attachments by about 25%.
+  /// However, the message is bounced if a relay on the route needs to forward
+  /// it to a server without BINARYMIME and isn't able to convert it.
+  /// Only enable this if the whole route supports BINARYMIME.
+  final bool useBinaryMime;
+
   SmtpServer(this.host,
       {this.port = 587,
       this.ignoreBadCertificate = false,
@@ -38,5 +47,6 @@ class SmtpServer {
       this.allowInsecure = false,
       this.username,
       this.password,
-      this.xoauth2Token});
+      this.xoauth2Token,
+      this.useBinaryMime = false});
 }
